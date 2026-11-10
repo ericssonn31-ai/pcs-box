@@ -24,7 +24,9 @@ body{
   font-size:16px; line-height:1.5;
 }
 .app{max-width:520px;margin:0 auto;padding:16px 16px 96px}
-h1{font-size:20px;margin:4px 0 14px;font-weight:800;letter-spacing:.02em}
+h1{font-size:20px;margin:0;font-weight:800;letter-spacing:.02em}
+.top{display:flex;justify-content:space-between;align-items:center;margin:4px 0 14px}
+input[readonly]{opacity:.7}
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:14px;margin-bottom:12px}
 label{display:block;font-size:13px;color:var(--muted);margin-bottom:4px}
 input,textarea{
@@ -88,7 +90,18 @@ button:disabled{opacity:.4;cursor:not-allowed}
 </head>
 <body>
 <div class="app">
-  <h1>刷條碼 pcs 換箱</h1>
+  <div class="top">
+    <h1>刷條碼 pcs 換箱</h1>
+    <button class="small" id="btnAdmin">管理員登入</button>
+  </div>
+  <div id="pinBox" class="panel" hidden>
+    <label for="pin">管理員 PIN</label>
+    <div class="row">
+      <div class="grow"><input id="pin" type="password" inputmode="numeric" autocomplete="off" placeholder="輸入 PIN"></div>
+      <button class="primary" id="btnPin">確定</button>
+    </div>
+    <p id="pinMsg" class="hint"></p>
+  </div>
 
   <!-- 換算 -->
   <section id="v-calc" class="view on">
@@ -153,11 +166,11 @@ button:disabled{opacity:.4;cursor:not-allowed}
     <div class="panel">
       <div class="list-head">
         <h2>商品入數表 <span id="pCount" style="color:var(--muted);font-weight:500;font-size:14px"></span></h2>
-        <button class="small" id="btnExport">複製 CSV</button>
+        <button class="small" id="btnExport" hidden>複製 CSV</button>
       </div>
       <div id="prods"></div>
     </div>
-    <div class="panel">
+    <div class="panel" id="importPanel" hidden>
       <label for="csv">批次匯入（每行：條碼,名稱,入數）</label>
       <textarea id="csv" rows="6" placeholder="4710088412345,綠茶 600ml,24&#10;4710088467890,紅茶 600ml,24"></textarea>
       <div class="row" style="margin-top:10px"><button class="primary" id="btnImport">匯入</button></div>
@@ -183,6 +196,9 @@ const $ = s => document.querySelector(s);
 let products = {};   // code -> {name, perBox}
 let records = [];    // {code,name,perBox,pcs}
 let cur = null;      // current code
+const ADMIN_PIN = 'qq0213qq0213';   // ← 請改成你自己的 PIN
+let isAdmin = false;        // 不會被儲存，每次開啟都是一般使用者
+let idleTimer = null;
 
 /* ---------- storage (falls back to memory) ---------- */
 async function load(){
@@ -212,13 +228,21 @@ function fmt(pcs,per){ const {boxes,rem}=calc(pcs,per); return rem? `${boxes} �
 function lookup(code){
   code = code.trim();
   if(!code) return;
-  cur = code;
   const p = products[code];
+  if(!p && !isAdmin){
+    cur = null;
+    $('#prodPanel').hidden = true;
+    $('#codeMsg').textContent = '此條碼尚未建立商品資料，請聯絡管理員新增。';
+    $('#codeMsg').className = 'hint err';
+    return;
+  }
+  cur = code;
   $('#prodPanel').hidden = false;
   $('#pCode').textContent = code;
   if(p){
     $('#pName').textContent = p.name || '（未命名商品）';
     $('#perBox').value = p.perBox;
+    $('#perBox').readOnly = !isAdmin;
     $('#nameWrap').hidden = true;
     $('#codeMsg').textContent = '';
     $('#codeMsg').className = 'hint';
@@ -226,6 +250,7 @@ function lookup(code){
   }else{
     $('#pName').textContent = '新商品';
     $('#perBox').value = '';
+    $('#perBox').readOnly = false;
     $('#newName').value = '';
     $('#nameWrap').hidden = false;
     $('#codeMsg').textContent = '資料庫沒有這個條碼，請先輸入每箱入數，之後就會記住。';
@@ -253,12 +278,13 @@ function update(){
 }
 
 function addRecord(){
-  const per = parseInt($('#perBox').value,10);
+  const per = isAdmin ? parseInt($('#perBox').value,10) : (products[cur] ? products[cur].perBox : 0);
   const pcs = parseInt($('#pcs').value,10);
+  if(!(per>0)) return;
   let p = products[cur];
-  if(!p){
+  if(!p && isAdmin){
     p = products[cur] = {name:$('#newName').value.trim(), perBox:per};
-  }else if(p.perBox!==per){
+  }else if(isAdmin && p.perBox!==per){
     p.perBox = per; // 入數有修改就更新
   }
   records.unshift({code:cur,name:p.name,perBox:per,pcs});
@@ -289,8 +315,8 @@ function renderProds(){
     <div class="prod-row">
       <div><div style="font-weight:600;word-break:break-all">${esc(products[k].name||k)}</div>
       <div class="code" style="font-size:12px;color:var(--muted)">${esc(k)}　${products[k].perBox} pcs／箱</div></div>
-      <button class="small" data-pdel="${esc(k)}">刪除</button>
-    </div>`).join('') : '<div class="empty">還沒有商品。刷新條碼時會自動建立，或用下方批次匯入。</div>';
+      ${isAdmin?`<button class="small" data-pdel="${esc(k)}">刪除</button>`:''}
+    </div>`).join('') : '<div class="empty">'+(isAdmin?'還沒有商品。刷新條碼時會自動建立，或用下方批次匯入。':'尚無商品資料，請聯絡管理員建立。')+'</div>';
 }
 
 /* ---------- events ---------- */
@@ -331,6 +357,35 @@ $('#btnImport').addEventListener('click',()=>{
   if(n){ save(); renderAll(); $('#csv').value=''; toast(`已匯入 ${n} 項`); } else toast('格式不對：條碼,名稱,入數');
 });
 
+/* ---------- admin ---------- */
+function applyRole(){
+  $('#btnAdmin').textContent = isAdmin ? '管理員登出' : '管理員登入';
+  $('#importPanel').hidden = !isAdmin;
+  $('#btnExport').hidden = !isAdmin;
+  $('#perBox').readOnly = !isAdmin && !!(cur && products[cur]);
+  renderProds();
+  resetIdle();
+}
+function resetIdle(){
+  clearTimeout(idleTimer);
+  if(isAdmin) idleTimer = setTimeout(()=>{ isAdmin=false; applyRole(); toast('閒置太久，已自動登出管理員'); }, 5*60*1000);
+}
+function tryPin(){
+  if($('#pin').value === ADMIN_PIN){
+    isAdmin = true; $('#pinBox').hidden = true; $('#pin').value=''; applyRole(); toast('已登入管理員');
+  }else{
+    $('#pinMsg').textContent = 'PIN 錯誤，請再試一次。'; $('#pinMsg').className = 'hint err'; $('#pin').value='';
+  }
+}
+$('#btnAdmin').addEventListener('click',()=>{
+  if(isAdmin){ isAdmin=false; applyRole(); toast('已登出管理員'); return; }
+  stopScan();
+  $('#pinBox').hidden = false; $('#pin').value=''; $('#pinMsg').textContent=''; $('#pin').focus();
+});
+$('#btnPin').addEventListener('click',tryPin);
+$('#pin').addEventListener('keydown',e=>{ if(e.key==='Enter') tryPin(); });
+document.addEventListener('pointerdown',resetIdle);
+
 /* tabs */
 document.querySelectorAll('.tabs button').forEach(b=>b.addEventListener('click',()=>{
   document.querySelectorAll('.tabs button').forEach(x=>x.setAttribute('aria-selected',x===b));
@@ -344,7 +399,9 @@ async function startScan(auto){
   if(!('BarcodeDetector' in window)){ if(auto!==true) toast('這個瀏覽器不支援相機掃描，請用掃描槍或手動輸入'); return; }
   if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){ if(auto!==true) toast('此環境無法使用相機'); return; }
   try{
-    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}}});
+    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}}});
+    try{ const tr=stream.getVideoTracks()[0]; const cap=tr.getCapabilities?tr.getCapabilities():{};
+      if(cap.focusMode && cap.focusMode.includes('continuous')) await tr.applyConstraints({advanced:[{focusMode:'continuous'}]}); }catch(_){}
   }catch(e){
     if(auto!==true) toast('相機權限被拒絕，請在瀏覽器網址列或設定中允許相機');
     else $('#codeMsg').textContent = '相機未開啟（權限被拒絕或不支援），可用掃描槍或手動輸入。';
@@ -362,6 +419,7 @@ async function startScan(auto){
     setTimeout(tick,150);
   };
   tick();
+  setTimeout(()=>{ if(scanning) $('#scanMsg').textContent='掃不到？退後約 15 公分，保持穩定，避開反光'; },6000);
 }
 function stopScan(){
   scanning=false;
@@ -391,7 +449,10 @@ const autoCam = () => { if($('#autoCam').checked) startScan(true); };
 $('#autoCam').addEventListener('change',()=>{ if($('#autoCam').checked) startScan(true); });
 document.addEventListener('visibilitychange',()=>{ if(document.hidden) stopScan(); else autoCam(); });
 
-load().then(autoCam);
+load().then(()=>{ applyRole(); autoCam(); });
 </script>
 </body>
 </html>
+兩個你需要知道的限制
+PIN 寫在程式裡，只能擋一般同事，擋不住會看網頁原始碼的人。
+商品資料存在每支手機自己的瀏覽器裡，不會同步。所以每支要使用的手機，都要由管理員登入後，先到「商品」頁匯入一次商品資料（格式：條碼,名稱,入數）。如果你有很多支手機要共用同一份資料，就需要之前提到的方案 3（雲端資料庫），告訴我，我可以幫你規劃。

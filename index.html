@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>刷條碼 pcs 換箱</title>
+<style>
+:root{
+  --bg:#e8edf0; --surface:#ffffff; --ink:#14232b; --muted:#5d6e78; --line:#cdd6db;
+  --tape:#f2c200; --tape-ink:#14232b; --ok:#1c7a4b; --warn:#b3261e; --box:#a9733a;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#10191e; --surface:#1a272e; --ink:#e8eff2; --muted:#8fa1ab; --line:#2f424c;
+    --tape:#f2c200; --tape-ink:#14232b; --ok:#5fd394; --warn:#ff8a80; --box:#d29a5c;
+    color-scheme: dark;
+  }
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;
+  font-size:16px; line-height:1.5;
+}
+.app{max-width:520px;margin:0 auto;padding:16px 16px 96px}
+h1{font-size:20px;margin:4px 0 14px;font-weight:800;letter-spacing:.02em}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:14px;margin-bottom:12px}
+label{display:block;font-size:13px;color:var(--muted);margin-bottom:4px}
+input,textarea{
+  width:100%;font:inherit;color:var(--ink);background:var(--bg);
+  border:1.5px solid var(--line);border-radius:4px;padding:11px 12px;
+}
+input:focus,textarea:focus,button:focus-visible{outline:3px solid var(--tape);outline-offset:1px;border-color:var(--ink)}
+.row{display:flex;gap:8px;align-items:flex-end}
+.row>.grow{flex:1;min-width:0}
+button{
+  font:inherit;font-weight:700;border:1.5px solid var(--ink);background:var(--surface);color:var(--ink);
+  border-radius:4px;padding:11px 14px;cursor:pointer;
+}
+button.primary{background:var(--tape);color:var(--tape-ink);border-color:var(--tape-ink)}
+button.small{padding:6px 10px;font-size:13px;font-weight:600}
+button:active{transform:translateY(1px)}
+button:disabled{opacity:.4;cursor:not-allowed}
+.product{display:flex;justify-content:space-between;gap:10px;align-items:baseline;margin-bottom:10px}
+.product .name{font-weight:700;word-break:break-all}
+.product .code{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.hint{font-size:13px;color:var(--muted);margin:8px 0 0}
+.hint.err{color:var(--warn)}
+.result{
+  margin-top:12px;padding:14px;border-left:8px solid var(--tape);background:var(--bg);border-radius:0 4px 4px 0;
+}
+.result .big{font-size:44px;font-weight:800;line-height:1.1;font-variant-numeric:tabular-nums}
+.result .big small{font-size:18px;font-weight:700;margin-left:4px}
+.result .rem{font-size:18px;font-weight:600;margin-left:10px;color:var(--box)}
+.result .sub{font-size:13px;color:var(--muted);margin-top:4px;font-variant-numeric:tabular-nums}
+.list-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.list-head h2{font-size:16px;margin:0}
+.rec{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.rec:first-of-type{border-top:0}
+.rec .n{font-weight:600;word-break:break-all}
+.rec .c{font-size:12px;color:var(--muted)}
+.rec .v{text-align:right;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
+.rec .v span{font-weight:500;color:var(--muted);font-size:13px}
+.empty{color:var(--muted);text-align:center;padding:18px 0;font-size:14px}
+.prod-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 0;border-top:1px solid var(--line)}
+.prod-row:first-child{border-top:0}
+.tabs{
+  position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--surface);border-top:2px solid var(--ink);
+}
+.tabs button{flex:1;border:0;border-radius:0;padding:16px 0;background:transparent;font-size:16px}
+.tabs button[aria-selected="true"]{background:var(--tape);color:var(--tape-ink)}
+.view{display:none}.view.on{display:block}
+#scanner{
+  position:fixed;inset:0;background:#000;z-index:10;display:none;flex-direction:column;
+}
+#scanner.on{display:flex}
+#scanner video{flex:1;width:100%;object-fit:cover;min-height:0}
+#scanner .bar{padding:14px;display:flex;gap:10px;justify-content:space-between;align-items:center;background:#000;color:#fff;font-size:14px}
+.frame{position:absolute;left:10%;right:10%;top:28%;height:22%;border:3px solid var(--tape);border-radius:6px;pointer-events:none}
+.toast{
+  position:fixed;left:50%;bottom:76px;transform:translateX(-50%);background:var(--ink);color:var(--bg);
+  padding:10px 16px;border-radius:4px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .2s;z-index:20;
+}
+.toast.on{opacity:1}
+@media (prefers-reduced-motion: reduce){.toast{transition:none}}
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>刷條碼 pcs 換箱</h1>
+
+  <!-- 換算 -->
+  <section id="v-calc" class="view on">
+    <div class="panel">
+      <label for="code">條碼</label>
+      <div class="row">
+        <div class="grow"><input id="code" inputmode="text" autocomplete="off" placeholder="用掃描槍刷，或手動輸入後按 Enter"></div>
+        <button id="btnCam">相機掃描</button>
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;margin:10px 0 0;cursor:pointer">
+        <input id="autoCam" type="checkbox" checked style="width:auto;margin:0"> 開啟 app 與每筆完成後，自動開啟相機
+      </label>
+      <div style="margin-top:10px">
+        <button class="small" id="btnPhoto">改用拍照辨識</button>
+        <input id="photo" type="file" accept="image/*" capture="environment" hidden>
+      </div>
+      <p id="codeMsg" class="hint"></p>
+    </div>
+
+    <div id="prodPanel" class="panel" hidden>
+      <div class="product">
+        <div class="name" id="pName"></div>
+        <div class="code" id="pCode"></div>
+      </div>
+      <div class="row">
+        <div class="grow">
+          <label for="perBox">每箱入數（pcs／箱）</label>
+          <input id="perBox" type="number" inputmode="numeric" min="1" placeholder="例如 24">
+        </div>
+        <div class="grow">
+          <label for="pcs">數量（pcs）</label>
+          <input id="pcs" type="number" inputmode="numeric" min="0" placeholder="輸入 pcs">
+        </div>
+      </div>
+      <div id="nameWrap" style="margin-top:10px" hidden>
+        <label for="newName">商品名稱（選填）</label>
+        <input id="newName" placeholder="新商品，可以先不填">
+      </div>
+      <div class="result" id="result" hidden>
+        <div><span class="big" id="rBoxes">0<small>箱</small></span><span class="rem" id="rRem"></span></div>
+        <div class="sub" id="rSub"></div>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button class="primary grow" id="btnAdd" disabled>加入清單</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="list-head">
+        <h2>清單 <span id="total" style="color:var(--muted);font-weight:500;font-size:14px"></span></h2>
+        <div>
+          <button class="small" id="btnCopy">複製</button>
+          <button class="small" id="btnClear">清空</button>
+        </div>
+      </div>
+      <div id="recs"></div>
+    </div>
+  </section>
+
+  <!-- 商品 -->
+  <section id="v-prod" class="view">
+    <div class="panel">
+      <div class="list-head">
+        <h2>商品入數表 <span id="pCount" style="color:var(--muted);font-weight:500;font-size:14px"></span></h2>
+        <button class="small" id="btnExport">複製 CSV</button>
+      </div>
+      <div id="prods"></div>
+    </div>
+    <div class="panel">
+      <label for="csv">批次匯入（每行：條碼,名稱,入數）</label>
+      <textarea id="csv" rows="6" placeholder="4710088412345,綠茶 600ml,24&#10;4710088467890,紅茶 600ml,24"></textarea>
+      <div class="row" style="margin-top:10px"><button class="primary" id="btnImport">匯入</button></div>
+      <p class="hint">同條碼會被覆蓋。資料會存在這個 app 裡，下次開啟還在。</p>
+    </div>
+  </section>
+</div>
+
+<div class="tabs" role="tablist">
+  <button role="tab" aria-selected="true" data-v="calc">換算</button>
+  <button role="tab" aria-selected="false" data-v="prod">商品</button>
+</div>
+
+<div id="scanner">
+  <video id="video" playsinline muted></video>
+  <div class="frame"></div>
+  <div class="bar"><span id="scanMsg">把條碼對準框內</span><button id="btnStop">關閉</button></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+let products = {};   // code -> {name, perBox}
+let records = [];    // {code,name,perBox,pcs}
+let cur = null;      // current code
+
+/* ---------- storage (falls back to memory) ---------- */
+async function load(){
+  try{
+    let raw = null;
+    if(window.storage){ const r = await window.storage.get('pcs-box-data'); raw = r && r.value; }
+    else raw = localStorage.getItem('pcs-box-data');
+    if(raw){ const d = JSON.parse(raw); products = d.products||{}; records = d.records||[]; }
+  }catch(e){}
+  renderAll();
+}
+async function save(){
+  const data = JSON.stringify({products,records});
+  try{
+    if(window.storage) await window.storage.set('pcs-box-data', data);
+    else localStorage.setItem('pcs-box-data', data);
+  }catch(e){}
+}
+
+/* ---------- helpers ---------- */
+function toast(t){const el=$('#toast');el.textContent=t;el.classList.add('on');clearTimeout(toast.t);toast.t=setTimeout(()=>el.classList.remove('on'),1600)}
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function calc(pcs,per){ return {boxes:Math.floor(pcs/per), rem:pcs%per}; }
+function fmt(pcs,per){ const {boxes,rem}=calc(pcs,per); return rem? `${boxes} 箱 ${rem} pcs` : `${boxes} 箱`; }
+
+/* ---------- lookup ---------- */
+function lookup(code){
+  code = code.trim();
+  if(!code) return;
+  cur = code;
+  const p = products[code];
+  $('#prodPanel').hidden = false;
+  $('#pCode').textContent = code;
+  if(p){
+    $('#pName').textContent = p.name || '（未命名商品）';
+    $('#perBox').value = p.perBox;
+    $('#nameWrap').hidden = true;
+    $('#codeMsg').textContent = '';
+    $('#codeMsg').className = 'hint';
+    $('#pcs').focus();
+  }else{
+    $('#pName').textContent = '新商品';
+    $('#perBox').value = '';
+    $('#newName').value = '';
+    $('#nameWrap').hidden = false;
+    $('#codeMsg').textContent = '資料庫沒有這個條碼，請先輸入每箱入數，之後就會記住。';
+    $('#codeMsg').className = 'hint err';
+    $('#perBox').focus();
+  }
+  $('#pcs').value = '';
+  update();
+}
+
+function update(){
+  const per = parseInt($('#perBox').value,10);
+  const pcsRaw = $('#pcs').value;
+  const pcs = parseInt(pcsRaw,10);
+  const okPer = per>0, okPcs = pcsRaw!=='' && pcs>=0;
+  const res = $('#result');
+  if(okPer && okPcs){
+    const {boxes,rem} = calc(pcs,per);
+    $('#rBoxes').innerHTML = `${boxes}<small>箱</small>`;
+    $('#rRem').textContent = rem ? `又 ${rem} pcs` : '';
+    $('#rSub').textContent = `${pcs} pcs ÷ ${per} pcs／箱 = ${(pcs/per).toFixed(2)} 箱`;
+    res.hidden = false;
+  }else res.hidden = true;
+  $('#btnAdd').disabled = !(cur && okPer && okPcs);
+}
+
+function addRecord(){
+  const per = parseInt($('#perBox').value,10);
+  const pcs = parseInt($('#pcs').value,10);
+  let p = products[cur];
+  if(!p){
+    p = products[cur] = {name:$('#newName').value.trim(), perBox:per};
+  }else if(p.perBox!==per){
+    p.perBox = per; // 入數有修改就更新
+  }
+  records.unshift({code:cur,name:p.name,perBox:per,pcs});
+  save(); renderAll();
+  toast('已加入：'+fmt(pcs,per));
+  cur=null; $('#prodPanel').hidden=true; $('#code').value=''; $('#code').focus();
+  setTimeout(()=>{ if(typeof autoCam==='function') autoCam(); },300);
+}
+
+/* ---------- render ---------- */
+function renderAll(){ renderRecs(); renderProds(); }
+function renderRecs(){
+  const el = $('#recs');
+  if(!records.length){ el.innerHTML='<div class="empty">還沒有紀錄。刷一個條碼開始。</div>'; $('#total').textContent=''; return; }
+  el.innerHTML = records.map((r,i)=>`
+    <div class="rec">
+      <div><div class="n">${esc(r.name||r.code)}</div><div class="c">${esc(r.code)}　${r.perBox} pcs／箱</div></div>
+      <div class="v">${fmt(r.pcs,r.perBox)}<br><span>${r.pcs} pcs</span></div>
+      <button class="small" data-del="${i}" aria-label="刪除">刪除</button>
+    </div>`).join('');
+  const boxes = records.reduce((a,r)=>a+r.pcs/r.perBox,0);
+  $('#total').textContent = `${records.length} 筆　共 ${boxes.toFixed(2)} 箱`;
+}
+function renderProds(){
+  const keys = Object.keys(products);
+  $('#pCount').textContent = keys.length ? `${keys.length} 項` : '';
+  $('#prods').innerHTML = keys.length ? keys.map(k=>`
+    <div class="prod-row">
+      <div><div style="font-weight:600;word-break:break-all">${esc(products[k].name||k)}</div>
+      <div class="code" style="font-size:12px;color:var(--muted)">${esc(k)}　${products[k].perBox} pcs／箱</div></div>
+      <button class="small" data-pdel="${esc(k)}">刪除</button>
+    </div>`).join('') : '<div class="empty">還沒有商品。刷新條碼時會自動建立，或用下方批次匯入。</div>';
+}
+
+/* ---------- events ---------- */
+$('#code').addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); lookup(e.target.value); } });
+$('#perBox').addEventListener('input',update);
+$('#pcs').addEventListener('input',update);
+$('#pcs').addEventListener('keydown',e=>{ if(e.key==='Enter' && !$('#btnAdd').disabled) addRecord(); });
+$('#perBox').addEventListener('keydown',e=>{ if(e.key==='Enter') $('#pcs').focus(); });
+$('#btnAdd').addEventListener('click',addRecord);
+$('#recs').addEventListener('click',e=>{ const i=e.target.dataset.del; if(i!==undefined){ records.splice(+i,1); save(); renderAll(); }});
+$('#prods').addEventListener('click',e=>{ const k=e.target.dataset.pdel; if(k){ delete products[k]; save(); renderAll(); }});
+$('#btnClear').addEventListener('click',()=>{ if(records.length && confirm('清空全部紀錄？')){ records=[]; save(); renderAll(); }});
+
+async function copyText(t,msg){
+  try{ await navigator.clipboard.writeText(t); toast(msg); }
+  catch(e){
+    const ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta); ta.select();
+    try{document.execCommand('copy'); toast(msg);}catch(_){toast('複製失敗')} ta.remove();
+  }
+}
+$('#btnCopy').addEventListener('click',()=>{
+  if(!records.length) return toast('清單是空的');
+  const lines = ['條碼\t名稱\t入數\tpcs\t箱\t零頭pcs',...records.slice().reverse().map(r=>{const c=calc(r.pcs,r.perBox);return [r.code,r.name||'',r.perBox,r.pcs,c.boxes,c.rem].join('\t')})];
+  copyText(lines.join('\n'),'已複製，可貼到 Excel');
+});
+$('#btnExport').addEventListener('click',()=>{
+  const keys=Object.keys(products); if(!keys.length) return toast('沒有商品');
+  copyText(keys.map(k=>`${k},${products[k].name||''},${products[k].perBox}`).join('\n'),'已複製 CSV');
+});
+$('#btnImport').addEventListener('click',()=>{
+  let n=0;
+  $('#csv').value.split(/\r?\n/).forEach(line=>{
+    const p=line.split(/[,\t]/).map(s=>s.trim());
+    if(p.length<2) return;
+    const code=p[0], per=parseInt(p[p.length-1],10), name=p.length>2?p.slice(1,-1).join(','):'';
+    if(code && per>0){ products[code]={name,perBox:per}; n++; }
+  });
+  if(n){ save(); renderAll(); $('#csv').value=''; toast(`已匯入 ${n} 項`); } else toast('格式不對：條碼,名稱,入數');
+});
+
+/* tabs */
+document.querySelectorAll('.tabs button').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('.tabs button').forEach(x=>x.setAttribute('aria-selected',x===b));
+  document.querySelectorAll('.view').forEach(v=>v.classList.toggle('on',v.id==='v-'+b.dataset.v));
+}));
+
+/* ---------- camera scan ---------- */
+let stream=null, scanning=false;
+async function startScan(auto){
+  if(scanning) return;
+  if(!('BarcodeDetector' in window)){ if(auto!==true) toast('這個瀏覽器不支援相機掃描，請用掃描槍或手動輸入'); return; }
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){ if(auto!==true) toast('此環境無法使用相機'); return; }
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}}});
+  }catch(e){
+    if(auto!==true) toast('相機權限被拒絕，請在瀏覽器網址列或設定中允許相機');
+    else $('#codeMsg').textContent = '相機未開啟（權限被拒絕或不支援），可用掃描槍或手動輸入。';
+    return;
+  }
+  const v=$('#video'); v.srcObject=stream; await v.play();
+  $('#scanner').classList.add('on'); scanning=true;
+  const det = new BarcodeDetector({formats:['ean_13','ean_8','upc_a','upc_e','code_128','code_39','itf','qr_code']});
+  const tick = async()=>{
+    if(!scanning) return;
+    try{
+      const found = await det.detect(v);
+      if(found.length){ const val=found[0].rawValue; stopScan(); $('#code').value=val; if(navigator.vibrate) navigator.vibrate(60); lookup(val); return; }
+    }catch(e){}
+    setTimeout(tick,150);
+  };
+  tick();
+}
+function stopScan(){
+  scanning=false;
+  if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
+  $('#scanner').classList.remove('on');
+}
+$('#btnCam').addEventListener('click',()=>startScan(false));
+$('#btnStop').addEventListener('click',stopScan);
+
+/* photo fallback: works without live-camera permission */
+$('#btnPhoto').addEventListener('click',()=>$('#photo').click());
+$('#photo').addEventListener('change',async e=>{
+  const f=e.target.files[0]; e.target.value='';
+  if(!f) return;
+  if(!('BarcodeDetector' in window)){ toast('此瀏覽器無法辨識條碼，請手動輸入'); return; }
+  try{
+    const bmp = await createImageBitmap(f);
+    const det = new BarcodeDetector({formats:['ean_13','ean_8','upc_a','upc_e','code_128','code_39','itf','qr_code']});
+    const found = await det.detect(bmp);
+    if(found.length){ const val=found[0].rawValue; $('#code').value=val; lookup(val); }
+    else toast('沒辨識到條碼，請靠近一點、對焦後再拍');
+  }catch(err){ toast('辨識失敗，請再拍一次或手動輸入'); }
+});
+
+/* auto-open camera: on load, and again after each record is added */
+const autoCam = () => { if($('#autoCam').checked) startScan(true); };
+$('#autoCam').addEventListener('change',()=>{ if($('#autoCam').checked) startScan(true); });
+document.addEventListener('visibilitychange',()=>{ if(document.hidden) stopScan(); else autoCam(); });
+
+load().then(autoCam);
+</script>
+</body>
+</html>
